@@ -4,15 +4,34 @@
 #include <limits.h>
 #include <errno.h>
 
+
 // io61.c
 //    YOUR CODE HERE!
 
 
 // io61_file
 //    Data structure for io61 file wrappers. Add your own stuff.
-
+struct write_position {
+    int activated;
+    int start_for_write;
+    int sz;
+};
+struct write_position w;
+//w.activated = 0;
+//w.start_for_write = 0;
+//w.sz = 0;
 struct io61_file {
     int fd;
+    char buffer[4096];
+    int fixed_start;
+    int start;
+    int end;
+    int mode;
+    int seek;
+    int reverse;
+    int start_in_file;
+    int end_in_file;
+    size_t curr;
 };
 
 
@@ -25,6 +44,14 @@ io61_file* io61_fdopen(int fd, int mode) {
     assert(fd >= 0);
     io61_file* f = (io61_file*) malloc(sizeof(io61_file));
     f->fd = fd;
+    f->start = 0;
+    f->seek =0;
+    f->end = 4096;
+    f->reverse =4095;
+    f->end_in_file = 0;
+    f->start_in_file= 0;
+    f->curr = 0;
+    f->mode = mode;
     (void) mode;
     return f;
 }
@@ -34,6 +61,10 @@ io61_file* io61_fdopen(int fd, int mode) {
 //    Close the io61_file `f` and release all its resources.
 
 int io61_close(io61_file* f) {
+    if (f->start >0){
+        write(f->fd, f->buffer, f->start);
+    }
+    
     io61_flush(f);
     int r = close(f->fd);
     free(f);
@@ -47,11 +78,80 @@ int io61_close(io61_file* f) {
 
 int io61_readc(io61_file* f) {
     unsigned char buf[1];
-    if (read(f->fd, buf, 1) == 1) {
-        return buf[0];
-    } else {
-        return EOF;
+    if (f->seek ==1){
+        
+        if (f->reverse<4095){
+            buf[0] = f->buffer[f->reverse];
+            f->reverse = f->reverse - 1 ;
+            if (f->reverse<0){
+                f->reverse = 4095;
+            }
+            return buf[0];
+        }
+        else{
+            int seek = lseek(f->fd,-4095,SEEK_CUR);
+            if (seek>=0){
+                int m = read(f->fd,f->buffer,4096);
+                buf[0] = f->buffer[4095];
+                f->reverse = 4094;
+                return buf[0];
+            }
+            else{
+                
+                int y = read(f->fd,buf,1);
+                int s = lseek(f->fd,-1,SEEK_CUR);
+                if (y>0){
+                    return buf[0];
+                }
+                else{
+                    return EOF;
+                }
+            }
+            
+        }
     }
+    
+    
+    
+    if (f->start != 0){
+        buf[0] = f->buffer[f->start];
+        f->start = f->start + 1;
+        if (f->start == f->end){
+            f->start = 0;
+        }
+        return buf[0];
+    }
+    else{
+        
+        int m =read(f->fd, f->buffer, 4096);
+        if (m > 0) {
+            if (m!=4096) {
+                f->end  = m;
+                buf[0] = f->buffer[f->start];
+                f->start = f->start + 1;
+                
+                if (f->start == f->end){
+                    f->start = 0;
+                }
+                return buf[0];
+                
+            }
+            else {
+                buf[0] = f->buffer[f->start];
+                f->start = f->start + 1;
+                if (f->start == f->end){
+                    f->start = 0;
+                 }
+                return buf[0];
+            }
+        }
+        else {
+            return EOF;
+        }
+        
+    }
+    
+    
 }
 
 
@@ -62,20 +162,158 @@ int io61_readc(io61_file* f) {
 //    could be read. Returns -1 if an error occurred before any characters
 //    were read.
 
-ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
-    size_t nread = 0;
-    while (nread != sz) {
-        int ch = io61_readc(f);
-        if (ch == EOF) {
-            break;
-        }
-        buf[nread] = ch;
-        ++nread;
+ssize_t read_to_file(io61_file* f){
+    f->end= 4096;
+    int m = read(f->fd,f->buffer,f->end);
+    if (m > 0){
+        return m;
     }
-    if (nread != 0 || sz == 0 || io61_eof(f)) {
-        return nread;
-    } else {
-        return -1;
+    else {
+        return EOF;
+    }
+    
+}
+
+
+ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
+    
+    size_t nread = 0;
+    int m;
+    if (f->seek ==1){
+        w.activated = 1;
+        w.start_for_write = f->curr;
+        if (f->curr >= f->start_in_file && f->curr< f->end_in_file){
+            if (f->curr+f->start_in_file > f->end){
+                m = read_to_file(f);
+                if (m>0 && m>=sz){
+                    memcpy(buf,f->buffer,sz);
+                    f->start_in_file = f->curr;
+                    f->end_in_file = f->curr+m;
+                    w.sz = sz;
+                    return sz;
+                }
+                else if(m>0 && m<sz) {
+                    memcpy(buf,f->buffer,m);
+                    f->start_in_file = f->curr;
+                    f->end_in_file = f->curr+m;
+                    w.sz = m;
+                    return m;
+                }
+                else{
+                    w.sz = -1;
+                    return -1;
+                }
+                
+            }
+            else{
+                memcpy(buf,f->buffer+f->curr-f->start_in_file,sz);
+                w.sz = sz;
+                return sz;
+            }
+        }
+        else{
+            m = read_to_file(f);
+            if (m>0 && m>=sz){
+                memcpy(buf,f->buffer,sz);
+                f->start_in_file = f->curr;
+                f->end_in_file = f->curr+m;
+                w.sz = sz;
+                return sz;
+            }
+            else if(m>0 && m<sz) {
+                memcpy(buf,f->buffer,m);
+                f->start_in_file = f->curr;
+                f->end_in_file = f->curr+m;
+                w.sz = m;
+                return m;
+            }
+            else{
+                return -1;
+            }
+
+        }
+    }
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    //size_t nread = 0;
+    //int m;
+    while (nread<sz){
+        if (f->start ==0){
+             m = read_to_file(f);
+        }
+        else{
+             m = sz;
+        }
+        if ( m>0 && f->start<f->end){
+            if (f->start+sz <= f->end){
+                memcpy(buf, f->buffer+f->start,sz);
+                f->start = f->start + sz;
+                if (f->start==f->end){
+                    f->start = 0;
+                }
+                if (f->start>f->end){
+                    f->start = 0;
+                //lseek(f,f->start-f->end,SEEK_CUR);
+                }
+                nread= nread+sz-nread;
+                return nread;
+            }
+            else{
+                memcpy(buf,f->buffer+f->start,f->end-f->start);
+                int left_over  = f->start+sz-f->end;
+                int temp = f->start;
+                f->start = 0;
+                int x = read_to_file(f);
+                if (x > 0 && x>=left_over){
+                    memcpy(buf+f->end-temp,f->buffer,left_over);
+                    f->start = f->start + left_over;
+                    f->end = x;
+                    return f->end-temp+left_over;
+                }
+                else if (x>0 && x<left_over){
+                    memcpy(buf+f->end-temp,f->buffer,x);
+                    f->start = f->start + x;
+                    f->end = x;
+                    return f->end-temp+x;
+                }
+                
+                //int x = read(f->fd,buf+f->end-f->start,f->start+sz-f->end);
+                else if (x<0 || x==EOF){
+                    return f->end-temp;
+                }
+                
+                
+            }
+        }
+        
+        else if (m>0 && m==sz){
+            memcpy(buf, f->buffer,sz-nread);
+            f->start = 0;
+            nread= nread+f->end;
+            return nread;
+            
+            
+        }
+        else if(m==EOF){
+            return EOF;
+            
+        }
+        else {
+            return -1;
+        }
+        
     }
 }
 
@@ -86,11 +324,20 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
 
 int io61_writec(io61_file* f, int ch) {
     unsigned char buf[1];
-    buf[0] = ch;
-    if (write(f->fd, buf, 1) == 1) {
-        return 0;
-    } else {
-        return -1;
+    
+    if (f->start < f->end){
+        f->buffer[f->start] = ch;
+        f->start = f->start + 1;
+        
+        return buf[0];
+    }
+    else{
+        int m = write(f->fd, f->buffer, 4096);
+        if (m> 0){
+            f->start = 1;
+            f->buffer[0] = ch;
+        }
+        return m;
     }
 }
 
@@ -101,18 +348,47 @@ int io61_writec(io61_file* f, int ch) {
 //    an error occurred before any characters were written.
 
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
-    size_t nwritten = 0;
-    while (nwritten != sz) {
-        if (io61_writec(f, buf[nwritten]) == -1) {
-            break;
-        }
-        ++nwritten;
+    //size_t nwritten = 0;
+    //while (nwritten != sz) {
+        //if (io61_writec(f, buf[nwritten]) == -1) {
+            //break;
+        //}
+        //++nwritten;
+    //}
+    //if (nwritten != 0 || sz == 0) {
+        //return nwritten;
+    //} else {
+        //return -1;
+    //}
+    //my code
+    if (w.activated==1){
+        int y = lseek(f->fd,w.start_for_write, SEEK_SET);
+        int x = write(f->fd,buf,w.sz);
+        return x;
     }
-    if (nwritten != 0 || sz == 0) {
-        return nwritten;
-    } else {
-        return -1;
+    
+    if(f->start<f->end && f->end-f->start>=sz){
+        memcpy(f->buffer+f->start,buf,sz);
+        f->start = f->start + sz;
+        return sz;
+        
     }
+    else if( f->start<f->end && f->end-f->start<sz){
+        memcpy(f->buffer+f->start,buf,f->end-f->start);
+        int temp = f->start;
+        int left_over = f->start+sz-f->end;
+        int x = write(f->fd,f->buffer,4096);
+        f->start  = 0;
+        memcpy(f->buffer+f->start,buf+f->end-temp,left_over);
+        f->start = f->start + left_over;
+    }
+    else{
+        f->start = 0;
+        write(f->fd,f->buffer,4096);
+        memcpy(f->buffer+f->start,buf,sz);
+        f->start = f->start + sz;
+    }
+    
 }
 
 
@@ -132,8 +408,11 @@ int io61_flush(io61_file* f) {
 //    Returns 0 on success and -1 on failure.
 
 int io61_seek(io61_file* f, off_t pos) {
+    f->seek = 1;
+    
     off_t r = lseek(f->fd, (off_t) pos, SEEK_SET);
     if (r == (off_t) pos) {
+        f->curr = r;
         return 0;
     } else {
         return -1;
