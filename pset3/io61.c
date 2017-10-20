@@ -507,7 +507,7 @@ int io61_seek(io61_file* f, off_t pos) {
     f->seek = 1;
     if(f->mode ==O_WRONLY) {
         io61_flush(f);
-        f->end_in_file = f->start_in_file+4096;
+        f->end_in_file = f->start_in_file;
     }
     off_t r = lseek(f->fd, (off_t) pos, SEEK_SET);
     if (r == (off_t) pos) {
