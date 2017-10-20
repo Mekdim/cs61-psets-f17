@@ -61,9 +61,9 @@ io61_file* io61_fdopen(int fd, int mode) {
 //    Close the io61_file `f` and release all its resources.
 
 int io61_close(io61_file* f) {
-    if (f->start >0){
-        write(f->fd, f->buffer, f->start);
-    }
+    //if (f->start >0){
+        //write(f->fd, f->buffer, f->start);
+    //}
     
     io61_flush(f);
     int r = close(f->fd);
@@ -421,8 +421,43 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
         return x;
     }
     
-    int x = write(f->fd,buf,sz);
-    return x;
+    //int x = write(f->fd,buf,sz);
+    //return x;
+    
+    
+    if (f->curr>=f->start_in_file && f->curr<f->end_in_file && f->end_in_file - f->curr >= sz){
+        memcpy(f->buffer+f->curr-f->start_in_file,buf,sz);
+        f->curr = f->curr + sz;
+        
+        return sz;
+    }
+    
+    else if( f->curr>=f->start_in_file && f->curr<f->end_in_file && f->end_in_file-f->curr<sz){
+        memcpy(f->buffer+f->curr-f->start_in_file,buf,f->end_in_file-f->curr);
+        int temp = f->curr;
+        int left_over = f->curr+sz-f->end_in_file;
+        int x = write(f->fd,f->buffer,4096);
+        memcpy(f->buffer,buf+f->end_in_file-temp,left_over);
+        f->start_in_file = f->end_in_file;
+        f->end_in_file = f->end_in_file+4096;
+        f->start  = 0;
+        f->curr = f->start_in_file + left_over;
+        return sz;
+    }
+    else{
+        f->start = 0;
+        if (f->curr>0 && f->curr ==f->end_in_file){
+            int x = write(f->fd,f->buffer,4096);
+        }
+        //int x = write(f->fd,f->buffer,4096);
+        
+        f->start_in_file = f->curr;
+        f->end_in_file = f->curr+4096;
+        f->curr = f->start_in_file + sz;
+        memcpy(f->buffer,buf,sz);
+    
+        return sz;
+    }
     
     
     if(f->start<f->end && f->end-f->start>=sz){
@@ -456,7 +491,10 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
 //    data buffered for reading, or do nothing.
 
 int io61_flush(io61_file* f) {
-    (void) f;
+    //(void) f;
+    if (f->curr-f->start_in_file >0){
+        write(f->fd, f->buffer, f->curr-f->start_in_file);
+    }
     return 0;
 }
 
@@ -467,7 +505,10 @@ int io61_flush(io61_file* f) {
 
 int io61_seek(io61_file* f, off_t pos) {
     f->seek = 1;
-    
+    if(f->mode ==O_WRONLY) {
+        io61_flush(f);
+        f->end_in_file = f->start_in_file+4096;
+    }
     off_t r = lseek(f->fd, (off_t) pos, SEEK_SET);
     if (r == (off_t) pos) {
         f->curr = r;
