@@ -61,9 +61,9 @@ io61_file* io61_fdopen(int fd, int mode) {
 //    Close the io61_file `f` and release all its resources.
 
 int io61_close(io61_file* f) {
-    //if (f->start >0){
-        //write(f->fd, f->buffer, f->start);
-    //}
+    if (f->start >0){
+        write(f->fd, f->buffer, f->start);
+    }
     
     io61_flush(f);
     int r = close(f->fd);
