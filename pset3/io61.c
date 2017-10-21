@@ -93,6 +93,80 @@ ssize_t read_to_file(io61_file* f){
 int io61_readc(io61_file* f) {
     unsigned char buf[1];
     int m;
+    int sz = 1;
+    size_t nread = 0;
+    
+    if (f->seek !=10){
+        w.activated = 1;
+        w.start_for_write = f->curr;
+        if (f->curr >= f->start_in_file && f->curr< f->end_in_file){
+            if (f->curr+sz > f->end_in_file){
+                //int y = lseek(f->fd,f->end_in_file, SEEK_SET);
+                int left_over  = f->curr+sz-f->end_in_file;
+                int remaining = f->end_in_file-f->curr;
+                memcpy(buf,f->buffer+f->curr-f->start_in_file,f->end_in_file-f->curr);
+                f->start =0;
+                m = read_to_file(f);
+                if (m>0 && m>=left_over){
+                    memcpy(buf+f->end_in_file-f->curr,f->buffer,left_over);
+                    f->start_in_file = f->end_in_file;
+                    f->end_in_file = f->end_in_file+m;
+                    f->curr = f->start_in_file+left_over;
+                    w.sz = sz;
+                    return buf[0];
+                }
+                else if(m>0 && m<left_over) {
+                    memcpy(buf+f->end_in_file-f->curr,f->buffer,m);
+                    f->start_in_file = f->end_in_file;
+                    f->end_in_file = f->end_in_file+m;
+                    
+                    f->curr = f->start_in_file+m;
+                    w.sz = m;
+                    return buf[0];
+                }
+                else if (m==EOF || m<0){
+                    w.sz = -1;
+                    f->curr = f->end_in_file;
+                    return buf[0];
+                }
+                
+            }
+            else{
+                memcpy(buf,f->buffer+f->curr-f->start_in_file,sz);
+                f->curr = f->curr + sz;
+                w.sz = sz;
+                return buf[0];
+            }
+        }
+        else{
+            //int y = lseek(f->fd,f->curr, SEEK_SET);
+            
+            m = read_to_file(f);
+            if (m>0 && m>=sz){
+                memcpy(buf,f->buffer,sz);
+                f->start_in_file = f->curr;
+                f->end_in_file = f->curr+m;
+                f->curr = f->curr+sz;
+                w.sz = sz;
+                return buf[0];
+            }
+            else if(m>0 && m<sz) {
+                memcpy(buf,f->buffer,m);
+                f->start_in_file = f->curr;
+                f->end_in_file = f->curr+m;
+                f->curr = f->curr+m;
+                w.sz = m;
+                return buf[0];
+            }
+            else if (m<0 || m==EOF){
+                return -1;
+            }
+            
+        }
+    }
+
+    
+    
     if (f->seek ==1){
         
         
